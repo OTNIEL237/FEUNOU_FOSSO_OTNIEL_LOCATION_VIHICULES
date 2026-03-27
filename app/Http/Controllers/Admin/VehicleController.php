@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Vehicle;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 
 class VehicleController extends Controller
 {
@@ -31,13 +30,18 @@ class VehicleController extends Controller
             'mileage'       => 'required|integer|min:0',
             'status'        => 'required|in:available,rented,maintenance',
             'description'   => 'nullable|string',
-            'image'         => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'image'         => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3048',
         ]);
 
         $data = $request->except('image');
 
+        // 🔥 NOUVEAU : Upload vers Cloudinary au lieu du stockage local
         if ($request->hasFile('image')) {
-            $data['image'] = $request->file('image')->store('vehicles', 'public');
+            $uploaded = cloudinary()->upload(
+                $request->file('image')->getRealPath(),
+                ['folder' => 'autoloc/vehicles'] // dossier dans Cloudinary
+            );
+            $data['image'] = $uploaded->getSecurePath(); // URL publique
         }
 
         Vehicle::create($data);
@@ -69,17 +73,17 @@ class VehicleController extends Controller
             'mileage'       => 'required|integer|min:0',
             'status'        => 'required|in:available,rented,maintenance',
             'description'   => 'nullable|string',
-            'image'         => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'image'         => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3048',
         ]);
 
         $data = $request->except('image');
 
         if ($request->hasFile('image')) {
-            // Supprime l'ancienne image
-            if ($vehicle->image) {
-                Storage::disk('public')->delete($vehicle->image);
-            }
-            $data['image'] = $request->file('image')->store('vehicles', 'public');
+            $uploaded = cloudinary()->upload(
+                $request->file('image')->getRealPath(),
+                ['folder' => 'autoloc/vehicles']
+            );
+            $data['image'] = $uploaded->getSecurePath();
         }
 
         $vehicle->update($data);
@@ -90,9 +94,6 @@ class VehicleController extends Controller
 
     public function destroy(Vehicle $vehicle)
     {
-        if ($vehicle->image) {
-            Storage::disk('public')->delete($vehicle->image);
-        }
         $vehicle->delete();
         return redirect()->route('admin.vehicles.index')
             ->with('success', 'Véhicule supprimé.');
