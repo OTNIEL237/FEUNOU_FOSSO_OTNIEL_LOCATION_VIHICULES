@@ -71,17 +71,31 @@ Route::middleware(['auth','role:client'])
 Route::get('/client/payment/callback', [PaymentController::class, 'callback'])
     ->name('client.payment.callback');
 
-Route::get('/create-admin', function () {
-    $user = User::firstOrCreate(
-        ['email' => 'superadmin@example.com'],
-        [
-            'name' => 'Super Admin',
-            'password' => Hash::make('feunoufossootniel123'),
-            'role' => 'admin',
-            'is_active' => 1,
-        ]
-    );
-    return "Utilisateur admin créé ou déjà existant : ".$user->name;
+// ⚠️ ROUTE TEMPORAIRE — SUPPRIMER APRÈS CRÉATION DE L'ADMIN
+Route::get('/setup-admin-autoloc-2024', function() {
+    // Vérifie qu'aucun admin n'existe déjà
+    if (\App\Models\User::where('role', 'admin')->exists()) {
+        return response()->json([
+            'status'  => 'already_exists',
+            'message' => 'Un administrateur existe déjà.',
+        ]);
+    }
+
+    $admin = \App\Models\User::create([
+        'name'       => 'Admin AutoLoc',
+        'email'      => 'admin@autoloc.com',
+        'password'   => \Illuminate\Support\Facades\Hash::make('Admin@2024!'),
+        'role'       => 'admin',
+        'is_active'  => true,
+    ]);
+
+    return response()->json([
+        'status'   => 'success',
+        'message'  => 'Administrateur créé avec succès !',
+        'email'    => $admin->email,
+        'password' => 'Admin@2024!',
+        'warning'  => '⚠️ SUPPRIMEZ CETTE ROUTE IMMÉDIATEMENT APRÈS CONNEXION !',
+    ]);
 });
 
 require __DIR__.'/auth.php';
