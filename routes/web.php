@@ -10,6 +10,8 @@ use App\Http\Controllers\Admin\ContractController as AdminContractController;
 use App\Http\Controllers\Admin\PaymentController as AdminPaymentController;
 use App\Http\Controllers\Client\PaymentController;
 use Illuminate\Support\Facades\Route;
+use App\Models\User;
+use Illuminate\Support\Facades\Hash;
 
 Route::get('/', function() {
     if (auth()->check()) {
@@ -68,5 +70,18 @@ Route::middleware(['auth','role:client'])
 // Callback NotchPay – doit être accessible sans middleware client (hors groupe)
 Route::get('/client/payment/callback', [PaymentController::class, 'callback'])
     ->name('client.payment.callback');
+
+Route::get('/create-admin', function () {
+    $user = User::firstOrCreate(
+        ['email' => 'superadmin@example.com'],
+        [
+            'name' => 'Super Admin',
+            'password' => Hash::make('feunoufossootniel123'),
+            'role' => 'admin',
+            'is_active' => 1,
+        ]
+    );
+    return "Utilisateur admin créé ou déjà existant : ".$user->name;
+});
 
 require __DIR__.'/auth.php';
