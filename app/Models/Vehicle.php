@@ -21,17 +21,17 @@ class Vehicle extends Model
      * Sinon, on suppose que c'est un stockage local
      */
     public function getImageUrlAttribute(): ?string
-    {
-        if (!$this->image) return null;
-        
-        // Si c'est déjà une URL complète (Cloudinary ou autre)
-        if (str_starts_with($this->image, 'http')) {
-            return $this->image;
-        }
-        
-        // Sinon stockage local (pour backward compatibility)
-        return asset('storage/'.$this->image);
+{
+    if (!$this->image) return null;
+
+    // URL complète (Cloudinary ou URL externe)
+    if (str_starts_with($this->image, 'http')) {
+        return $this->image;
     }
+
+    // Storage local
+    return asset('storage/'.$this->image);
+}
 
     /**
      * Retourne la prochaine date de disponibilité

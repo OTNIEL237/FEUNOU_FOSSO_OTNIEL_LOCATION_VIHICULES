@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Vehicle;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class VehicleController extends Controller
 {
@@ -31,17 +32,36 @@ class VehicleController extends Controller
             'status'        => 'required|in:available,rented,maintenance',
             'description'   => 'nullable|string',
             'image'         => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3048',
+            'image_url'     => 'nullable|url',
         ]);
 
-        $data = $request->except('image');
+        $data = $request->only([
+            'brand','model','type','year','plate',
+            'price_per_day','mileage','status','description'
+        ]);
 
-        // 🔥 NOUVEAU : Upload vers Cloudinary au lieu du stockage local
+        // Priorité : fichier uploadé > URL externe
         if ($request->hasFile('image')) {
-            $uploaded = cloudinary()->upload(
-                $request->file('image')->getRealPath(),
-                ['folder' => 'autoloc/vehicles'] // dossier dans Cloudinary
-            );
-            $data['image'] = $uploaded->getSecurePath(); // URL publique
+            try {
+                // Tente Cloudinary si configuré
+                if (env('CLOUDINARY_URL')) {
+                    $uploaded = cloudinary()->upload(
+                        $request->file('image')->getRealPath(),
+                        ['folder' => 'autoloc/vehicles']
+                    );
+                    $data['image'] = $uploaded->getSecurePath();
+                } else {
+                    // Fallback storage local
+                    $data['image'] = $request->file('image')
+                        ->store('vehicles', 'public');
+                }
+            } catch (\Exception $e) {
+                // Si upload échoue, continue sans image
+                \Log::error('Image upload failed: '.$e->getMessage());
+            }
+        } elseif ($request->filled('image_url')) {
+            // URL externe directe
+            $data['image'] = $request->image_url;
         }
 
         Vehicle::create($data);
@@ -74,16 +94,31 @@ class VehicleController extends Controller
             'status'        => 'required|in:available,rented,maintenance',
             'description'   => 'nullable|string',
             'image'         => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3048',
+            'image_url'     => 'nullable|url',
         ]);
 
-        $data = $request->except('image');
+        $data = $request->only([
+            'brand','model','type','year','plate',
+            'price_per_day','mileage','status','description'
+        ]);
 
         if ($request->hasFile('image')) {
-            $uploaded = cloudinary()->upload(
-                $request->file('image')->getRealPath(),
-                ['folder' => 'autoloc/vehicles']
-            );
-            $data['image'] = $uploaded->getSecurePath();
+            try {
+                if (env('CLOUDINARY_URL')) {
+                    $uploaded = cloudinary()->upload(
+                        $request->file('image')->getRealPath(),
+                        ['folder' => 'autoloc/vehicles']
+                    );
+                    $data['image'] = $uploaded->getSecurePath();
+                } else {
+                    $data['image'] = $request->file('image')
+                        ->store('vehicles', 'public');
+                }
+            } catch (\Exception $e) {
+                \Log::error('Image upload failed: '.$e->getMessage());
+            }
+        } elseif ($request->filled('image_url')) {
+            $data['image'] = $request->image_url;
         }
 
         $vehicle->update($data);
