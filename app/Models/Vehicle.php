@@ -10,7 +10,6 @@ class Vehicle extends Model
         'price_per_day','mileage','status','image','description'
     ];
 
-    // 👇 CRUCIAL - expose image_url automatiquement
     protected $appends = ['image_url', 'next_available_date'];
 
     public function rentals()
@@ -21,25 +20,19 @@ class Vehicle extends Model
     public function getImageUrlAttribute(): ?string
     {
         if (!$this->image) return null;
-
-        // URL complète Cloudinary ou externe
         if (str_starts_with($this->image, 'http')) {
             return $this->image;
         }
-
-        // Storage local
         return asset('storage/'.$this->image);
     }
 
     public function getNextAvailableDateAttribute(): ?string
     {
         if ($this->status === 'available') return null;
-
         $lastRental = $this->rentals()
             ->whereIn('status', ['confirmed','ongoing'])
             ->orderByDesc('end_date')
             ->first();
-
         return $lastRental
             ? $lastRental->end_date->addDay()->format('d/m/Y')
             : null;
