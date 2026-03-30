@@ -27,7 +27,7 @@ class PaymentController extends Controller
             'phone'  => 'required_if:method,mobile_money|nullable|string',
         ]);
 
-        // Formate le numéro avec +237 si pas déjà fait
+        // Formate le numéro
         $phone = $request->phone ?? '';
         if ($phone && !str_starts_with($phone, '+')) {
             $phone = '+237'.ltrim($phone, '0');
@@ -35,7 +35,6 @@ class PaymentController extends Controller
 
         $reference = 'PAY-'.strtoupper(uniqid());
 
-        // Sauvegarde en pending
         $payment = Payment::create([
             'rental_id'       => $rental->id,
             'user_id'         => auth()->id(),
@@ -45,37 +44,47 @@ class PaymentController extends Controller
             'transaction_ref' => $reference,
         ]);
 
-        // Appel NotchPay
         try {
+            // 👇 NotchPay attend la clé PUBLIQUE dans Authorization
+            // et le format exact est juste la clé sans "Bearer"
+            $publicKey = config('services.notchpay.public_key');
+
             $response = Http::withoutVerifying()
-                ->timeout(30) // 👈 30 secondes au lieu de 10
+                ->timeout(30)
                 ->withHeaders([
-                    'Authorization' => env('NOTCHPAY_PUBLIC_KEY'),
+                    'Authorization' => $publicKey,
                     'Accept'        => 'application/json',
                     'Content-Type'  => 'application/json',
-                ])->post($this->baseUrl.'/payments/initialize', [
+                ])
+                ->post($this->baseUrl.'/payments/initialize', [
                     'amount'      => (int) $rental->total_price,
                     'currency'    => 'XAF',
                     'email'       => auth()->user()->email,
                     'phone'       => $phone,
                     'reference'   => $reference,
-                    'description' => 'Location '.$rental->vehicle->brand.' '.$rental->vehicle->model,
-                    'callback'    => env('NOTCHPAY_CALLBACK_URL'),
+                    'description' => 'Location '.$rental->vehicle->brand.' '.$rental->vehicle->model.' ('.$rental->total_days.'j)',
+                    'callback'    => config('services.notchpay.callback'),
                 ]);
 
             $data = $response->json();
 
+            \Log::info('NotchPay Init Response', [
+                'status' => $response->status(),
+                'data'   => $data,
+            ]);
+
             if ($response->successful() && isset($data['transaction'])) {
-                // Redirige vers page de confirmation INTERNE
                 return redirect()->route('client.payment.confirm', [
                     'rental'    => $rental->id,
                     'reference' => $reference,
-                    'trx_ref'   => $data['transaction']['reference'] ?? $reference,
                 ]);
             }
 
+            // Erreur API — supprime le paiement pending
             $payment->delete();
-            return back()->with('error', 'Erreur NotchPay : '.($data['message'] ?? json_encode($data)));
+            return back()->with('error',
+                'Erreur NotchPay : '.($data['message'] ?? json_encode($data))
+            );
 
         } catch (\Exception $e) {
             $payment->delete();
@@ -87,37 +96,48 @@ class PaymentController extends Controller
     {
         abort_if($rental->user_id !== auth()->id(), 403);
         $reference = $request->get('reference');
-        $trxRef    = $request->get('trx_ref', $reference);
         $payment   = Payment::where('transaction_ref', $reference)->firstOrFail();
-        return view('client.payments.confirm', compact('rental','payment','reference','trxRef'));
+        return view('client.payments.confirm', compact('rental','payment','reference'));
     }
 
     public function verify(Request $request, Rental $rental)
     {
         abort_if($rental->user_id !== auth()->id(), 403);
-
         $reference = $request->get('reference');
 
+        // Mode simulation
+        if (config('services.notchpay.simulation')) {
+            $payment = Payment::where('transaction_ref', $reference)->firstOrFail();
+            $payment->update(['status' => 'paid', 'paid_at' => now()]);
+            optional($payment->rental->contract)->update([
+                'status' => 'signed', 'signed_at' => now(),
+            ]);
+            return redirect()->route('client.rentals')
+                ->with('success', '✓ Paiement de '.number_format($payment->amount,0,',',' ').' FCFA confirmé !');
+        }
+
         try {
+            $secretKey = config('services.notchpay.secret_key');
+
             $response = Http::withoutVerifying()
-                ->timeout(30) // 👈 30 secondes au lieu de 10
+                ->timeout(30)
                 ->withHeaders([
-                    'Authorization' => env('NOTCHPAY_SECRET_KEY'),
+                    'Authorization' => $secretKey,
                     'Accept'        => 'application/json',
-                ])->get($this->baseUrl.'/payments/'.$reference);
+                ])
+                ->get($this->baseUrl.'/payments/'.$reference);
 
             $data   = $response->json();
-            $status = $data['transaction']['status']
-                ?? $data['status']
-                ?? 'failed';
+            $status = $data['transaction']['status'] ?? $data['status'] ?? 'failed';
+
+            \Log::info('NotchPay Verify', ['status' => $status, 'data' => $data]);
 
             $payment = Payment::where('transaction_ref', $reference)->firstOrFail();
 
             if ($status === 'complete') {
                 $payment->update(['status' => 'paid', 'paid_at' => now()]);
                 optional($payment->rental->contract)->update([
-                    'status'    => 'signed',
-                    'signed_at' => now(),
+                    'status' => 'signed', 'signed_at' => now(),
                 ]);
                 return redirect()->route('client.rentals')
                     ->with('success', '✓ Paiement de '.number_format($payment->amount,0,',',' ').' FCFA confirmé !');
@@ -129,14 +149,16 @@ class PaymentController extends Controller
                     ->with('error', 'Paiement '.$status.'. Veuillez réessayer.');
             }
 
-            // Encore pending — demande de reconfirmer
             return redirect()->route('client.payment.confirm', [
                 'rental'    => $rental->id,
                 'reference' => $reference,
-            ])->with('info', 'Paiement en attente de confirmation...');
+            ])->with('info', 'En attente de confirmation...');
 
         } catch (\Exception $e) {
-            return back()->with('error', 'Erreur vérification : '.$e->getMessage());
+            return redirect()->route('client.payment.confirm', [
+                'rental'    => $rental->id,
+                'reference' => $reference,
+            ])->with('error', 'Vérification lente. Réessayez dans 30 secondes.');
         }
     }
 
@@ -149,11 +171,12 @@ class PaymentController extends Controller
 
         try {
             $response = Http::withoutVerifying()
-                ->timeout(30) // 👈 30 secondes au lieu de 10
+                ->timeout(30)
                 ->withHeaders([
-                    'Authorization' => env('NOTCHPAY_SECRET_KEY'),
+                    'Authorization' => config('services.notchpay.secret_key'),
                     'Accept'        => 'application/json',
-                ])->get($this->baseUrl.'/payments/'.$reference);
+                ])
+                ->get($this->baseUrl.'/payments/'.$reference);
 
             $data   = $response->json();
             $status = $data['transaction']['status'] ?? 'failed';
@@ -167,7 +190,9 @@ class PaymentController extends Controller
                 return redirect()->route('client.rentals')
                     ->with('success', '✓ Paiement confirmé ! Réf : '.$reference);
             }
-        } catch (\Exception $e) {}
+        } catch (\Exception $e) {
+            \Log::error('NotchPay callback error: '.$e->getMessage());
+        }
 
         return redirect()->route('client.rentals')
             ->with('error', 'Paiement non confirmé.');

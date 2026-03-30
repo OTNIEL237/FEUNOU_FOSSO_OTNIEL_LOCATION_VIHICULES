@@ -34,7 +34,10 @@ return [
     'notchpay' => [
     'public_key' => env('NOTCHPAY_PUBLIC_KEY'),
     'secret_key' => env('NOTCHPAY_SECRET_KEY'),
-    'callback'   => env('NOTCHPAY_CALLBACK_URL'),
-    ],
+    'callback'   => env('NOTCHPAY_CALLBACK_URL', config('app.url').'/client/payment/callback'),
+    'simulation' => env('PAYMENT_SIMULATION', false),
+],
+
+    
 
 ];
