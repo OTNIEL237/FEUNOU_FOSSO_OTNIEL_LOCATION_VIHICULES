@@ -98,4 +98,15 @@ Route::get('/setup-admin-autoloc-2024', function() {
     ]);
 });
 
+Route::get('/setup-debug-check', function() {
+    $vehicle = \App\Models\Vehicle::first();
+    return response()->json([
+        'vite_exists'    => file_exists(public_path('build/manifest.json')),
+        'app_url'        => config('app.url'),
+        'vehicle_image'  => $vehicle?->image ?? 'aucun véhicule',
+        'image_url'      => $vehicle?->image_url ?? 'null',
+        'storage_link'   => is_link(public_path('storage')),
+    ]);
+});
+
 require __DIR__.'/auth.php';
