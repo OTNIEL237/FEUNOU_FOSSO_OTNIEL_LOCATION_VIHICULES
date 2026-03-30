@@ -12,6 +12,9 @@ use App\Http\Controllers\Client\PaymentController;
 use Illuminate\Support\Facades\Route;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
+use App\Http\Controllers\HomeController;
+
+Route::get('/', [HomeController::class, 'index'])->name('home');
 
 Route::get('/', function() {
     if (auth()->check()) {
@@ -108,5 +111,16 @@ Route::get('/setup-debug-check', function() {
         'storage_link'   => is_link(public_path('storage')),
     ]);
 });
+
+// Redirige /dashboard selon le rôle
+Route::get('/dashboard', function() {
+    if (auth()->check()) {
+        return auth()->user()->role === 'admin'
+            ? redirect()->route('admin.dashboard')
+            : redirect()->route('client.dashboard');
+    }
+    return redirect()->route('login');
+})->middleware('auth');
+
 
 require __DIR__.'/auth.php';
